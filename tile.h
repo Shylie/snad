@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <type_traits>
 
 constexpr int GRID_WIDTH = 128;
 constexpr int GRID_HEIGHT = 128;

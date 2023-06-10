@@ -2,8 +2,6 @@
 
 #include "tile.h"
 
-#include <unordered_map>
-
 int main(int argc, char** argv)
 {
 	InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "snad");
