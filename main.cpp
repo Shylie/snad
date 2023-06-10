@@ -2,9 +2,12 @@
 
 #include "tile.h"
 
+#include <unordered_map>
+
 int main(int argc, char** argv)
 {
 	InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "snad");
+	//SetTargetFPS(60);
 
 	Texture texture = LoadTextureFromImage(Image{ nullptr, GRID_WIDTH, GRID_HEIGHT, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 });
 
@@ -15,6 +18,8 @@ int main(int argc, char** argv)
 
 	while (!WindowShouldClose())
 	{
+		Update();
+
 		if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
 		{
 			unsigned int x = GetMouseX() / TILE_SIZE;
@@ -24,14 +29,14 @@ int main(int argc, char** argv)
 			{
 				if (x < GRID_WIDTH && y < GRID_HEIGHT)
 				{
-					Set(x, y, { static_cast<Tile::Type>(selected), { } });
+					SetTile(x, y, { static_cast<Tile::Type>(selected), { } });
 				}
 			}
 			else if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
 			{
 				if (x < GRID_WIDTH && y < GRID_HEIGHT)
 				{
-					Set(x, y, { Tile::Air, { } });
+					SetTile(x, y, { Tile::Air, { } });
 				}
 			}
 		}
@@ -47,13 +52,13 @@ int main(int argc, char** argv)
 			selectedColor = Tile{ static_cast<Tile::Type>(selected), { } }.Color();
 		}
 
-		Update();
+		Render();
 
 		BeginDrawing();
 		DrawTexturePro(texture, { 0, 0, GRID_WIDTH, -GRID_HEIGHT }, { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT }, { 0, 0 }, 0, WHITE);
-		DrawFPS(TILE_SIZE * 4, TILE_SIZE * 4);
-		DrawRectangle(TILE_SIZE * 4, TILE_SIZE * 8, TILE_SIZE * 2, TILE_SIZE * 2, *reinterpret_cast<Color*>(&selectedColor));
-		DrawRectangleLines(TILE_SIZE * 4, TILE_SIZE * 8, TILE_SIZE * 2, TILE_SIZE * 2, Color{ 0, 0, 0, 255 });
+		DrawRectangle(20, 20, 20, 20, *reinterpret_cast<Color*>(&selectedColor));
+		DrawRectangleLines(20, 20, 20, 20, Color{ 0, 0, 0, 255 });
+		DrawFPS(20, 60);
 		EndDrawing();
 	}
 

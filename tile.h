@@ -3,9 +3,9 @@
 #include <cstdint>
 #include <type_traits>
 
-constexpr int GRID_WIDTH = 1920 / 4;
-constexpr int GRID_HEIGHT = 1080 / 4;
-constexpr int TILE_SIZE = 4;
+constexpr int GRID_WIDTH = 128;
+constexpr int GRID_HEIGHT = 128;
+constexpr int TILE_SIZE = 10;
 constexpr int SCREEN_WIDTH = GRID_WIDTH * TILE_SIZE;
 constexpr int SCREEN_HEIGHT = GRID_HEIGHT * TILE_SIZE;
 
@@ -40,6 +40,8 @@ struct Tile
 			LOC_HD uint32_t Color() { return 0xFFDA8923; }
 		} water;
 	} data;
+	
+	unsigned int lastUpdated;
 
 	LOC_HD uint32_t Color()
 	{
@@ -60,9 +62,9 @@ struct Tile
 	}
 };
 
-static_assert(std::is_pod_v<Tile>, "Tile must be a POD type.");
-
 void SetupGrid(unsigned int textureID);
 void DestroyGrid();
 void Update();
-void Set(unsigned int x, unsigned int y, Tile t);
+void Render();
+Tile GetTile(unsigned int x, unsigned int y);
+void SetTile(unsigned int x, unsigned int y, Tile t);
