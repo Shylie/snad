@@ -4,18 +4,42 @@
 #define APIENTRY
 #include <cuda_runtime_api.h>
 #include <cuda_gl_interop.h>
+#include <device_atomic_functions.h>
 
-constexpr unsigned int MAX_TILE_MODIFY_DISTANCE = 1;
-constexpr unsigned int MAX_OFFSET = 2 * MAX_TILE_MODIFY_DISTANCE + 1;
+constexpr unsigned int MAX_TILE_MODIFY_DISTANCE_X = 2;
+constexpr unsigned int MAX_TILE_MODIFY_DISTANCE_Y = 1;
+constexpr unsigned int MAX_OFFSET_X = MAX_TILE_MODIFY_DISTANCE_X * 2 + 1;
+constexpr unsigned int MAX_OFFSET_Y = MAX_TILE_MODIFY_DISTANCE_Y * 2 + 1;
 constexpr int BLOCK_SIZE = 16;
 const dim3 THREADS{ BLOCK_SIZE, BLOCK_SIZE };
 const dim3 BASE_GRID{ (GRID_WIDTH + BLOCK_SIZE - 1) / BLOCK_SIZE, (GRID_HEIGHT + BLOCK_SIZE - 1) / BLOCK_SIZE };
-const dim3 UPDATE_GRID{ (BASE_GRID.x + MAX_OFFSET - 1) / MAX_OFFSET, (BASE_GRID.y + MAX_OFFSET - 1) / MAX_OFFSET };
+const dim3 UPDATE_GRID{ (BASE_GRID.x + MAX_OFFSET_X - 1) / MAX_OFFSET_X, (BASE_GRID.y + MAX_OFFSET_Y - 1) / MAX_OFFSET_Y };
+
+struct XORRand
+{
+public:
+	__host__ __device__ uint32_t operator()()
+	{
+		state ^= state << 13;
+		state ^= state >> 17;
+		state ^= state << 5;
+
+		return state;
+	}
+
+	__host__ __device__ void SetState(uint32_t state)
+	{
+		this->state = state;
+	}
+
+private:
+	uint32_t state;
+};
 
 class TileGrid
 {
 public:
-	__host__ __device__ Tile* operator()(unsigned int x, unsigned int y)
+	__host__ __device__ Tile* Tile(unsigned int x, unsigned int y)
 	{
 		if (x >= GRID_WIDTH || y >= GRID_HEIGHT)
 		{
@@ -27,10 +51,16 @@ public:
 		}
 	}
 
+	__host__ __device__ XORRand& Random(unsigned int x, unsigned int y)
+	{
+		return rands[x + y * GRID_WIDTH];
+	}
+
 	unsigned int tick;
 
 private:
-	Tile tiles[GRID_WIDTH * GRID_HEIGHT];
+	::Tile tiles[GRID_WIDTH * GRID_HEIGHT];
+	XORRand rands[GRID_WIDTH * GRID_HEIGHT];
 };
 
 __device__ void SwapTiles(Tile* a, Tile* b)
@@ -44,12 +74,12 @@ typedef void (*TileUpdate)(TileGrid&, unsigned int, unsigned int);
 __device__ void AirUpdate(TileGrid& grid, unsigned int x, unsigned int y) { }
 __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 {
-	Tile* me = grid(x, y);
+	Tile* me = grid.Tile(x, y);
 
 	{
-		Tile* below = grid(x, y - 1);
+		Tile* below = grid.Tile(x, y - 1);
 
-		if (below && below->type == Tile::Air)
+		if (below && (below->type == Tile::Air || below->type == Tile::Water))
 		{
 			SwapTiles(me, below);
 
@@ -60,9 +90,9 @@ __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 	}
 
 	{
-		Tile* downLeft = grid(x - 1, y - 1);
+		Tile* downLeft = grid.Tile(x - 1, y - 1);
 
-		if (downLeft && downLeft->type == Tile::Air)
+		if (downLeft && (downLeft->type == Tile::Air || downLeft->type == Tile::Water))
 		{
 			SwapTiles(me, downLeft);
 
@@ -73,9 +103,9 @@ __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 	}
 
 	{
-		Tile* downRight = grid(x + 1, y - 1);
+		Tile* downRight = grid.Tile(x + 1, y - 1);
 
-		if (downRight && downRight->type == Tile::Air)
+		if (downRight && (downRight->type == Tile::Air || downRight->type == Tile::Water))
 		{
 			SwapTiles(me, downRight);
 
@@ -88,8 +118,8 @@ __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 
 __device__ void WaterUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 {
-	Tile* me = grid(x, y);
-	Tile* below = grid(x, y - 1);
+	Tile* me = grid.Tile(x, y);
+	Tile* below = grid.Tile(x, y - 1);
 
 	if (below && below->type == Tile::Air)
 	{
@@ -99,27 +129,31 @@ __device__ void WaterUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 	}
 	else
 	{
-		if ((grid.tick + x) % 2 == 0)
+		unsigned int r = grid.Random(x, y)();
+		Tile* moveTo = nullptr;
+		switch (r % 6)
 		{
-			Tile* left = grid(x - 1, y);
+		case 0:
+			moveTo = grid.Tile(x - 2, y);
+			break;
 
-			if (left && left->type == Tile::Air)
-			{
-				SwapTiles(me, left);
+		case 1:
+			moveTo = grid.Tile(x - 1, y);
+			break;
 
-				left->lastUpdated = grid.tick + 1;
-			}
+		case 2:
+			moveTo = grid.Tile(x + 1, y);
+			break;
+
+		case 3:
+			moveTo = grid.Tile(x + 2, y);
+			break;
 		}
-		else if ((grid.tick + x) % 2 == 1)
+
+		if (moveTo && moveTo->type == Tile::Air)
 		{
-			Tile* right = grid(x + 1, y);
-
-			if (right && right->type == Tile::Air)
-			{
-				SwapTiles(me, right);
-
-				right->lastUpdated = grid.tick + 1;
-			}
+			SwapTiles(me, moveTo);
+			moveTo->lastUpdated = grid.tick + 1;
 		}
 	}
 }
@@ -138,15 +172,15 @@ static cudaSurfaceObject_t surface;
 
 __global__ void _Update(TileGrid* grid, unsigned int ofx, unsigned int ofy)
 {
-	unsigned int x = (blockDim.x * blockIdx.x + threadIdx.x) * MAX_OFFSET + ofx;
-	unsigned int y = (blockDim.y * blockIdx.y + threadIdx.y) * MAX_OFFSET + ofy;
+	unsigned int x = (blockDim.x * blockIdx.x + threadIdx.x) * MAX_OFFSET_X + ofx;
+	unsigned int y = (blockDim.y * blockIdx.y + threadIdx.y) * MAX_OFFSET_Y + ofy;
 
 	if (x < GRID_WIDTH && y < GRID_HEIGHT)
 	{
-		Tile t = *(*grid)(x, y);
+		Tile t = *grid->Tile(x, y);
 		if (t.lastUpdated < grid->tick)
 		{
-			tileUpdateFns[(*grid)(x, y)->type](*grid, x, y);
+			tileUpdateFns[t.type](*grid, x, y);
 		}
 	}
 }
@@ -158,7 +192,7 @@ __global__ void _Render(TileGrid* grid, cudaSurfaceObject_t surface)
 
 	if (x < GRID_WIDTH && y < GRID_HEIGHT)
 	{
-		surf2Dwrite((*grid)(x, y)->Color(), surface, x * sizeof(uint32_t), y);
+		surf2Dwrite(grid->Tile(x, y)->Color(), surface, x * sizeof(uint32_t), y);
 	}
 }
 
@@ -169,7 +203,8 @@ __global__ void _Setup(TileGrid* grid)
 
 	if (x < GRID_WIDTH && y < GRID_HEIGHT)
 	{
-		(*grid)(x, y)->lastUpdated = grid->tick;
+		grid->Tile(x, y)->lastUpdated = grid->tick;
+		grid->Random(x, y).SetState(x + y * GRID_WIDTH);
 	}
 }
 
@@ -178,6 +213,7 @@ void SetupGrid(unsigned int textureID)
 	if (!grid)
 	{
 		cudaMallocManaged((void**)&grid, sizeof(TileGrid));
+		*grid = TileGrid();
 		cudaGraphicsGLRegisterImage(&resource, textureID, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard);
 		cudaGraphicsMapResources(1, &resource);
 		cudaGraphicsSubResourceGetMappedArray(&array, resource, 0, 0);
@@ -205,19 +241,19 @@ void DestroyGrid()
 
 void SetTile(unsigned int x, unsigned int y, Tile t)
 {
-	*(*grid)(x, y) = t;
+	*grid->Tile(x, y) = t;
 }
 
 Tile GetTile(unsigned int x, unsigned int y)
 {
-	return *(*grid)(x, y);
+	return *grid->Tile(x, y);
 }
 
 void Update()
 {
-	for (unsigned int ofx = 0; ofx < MAX_OFFSET; ofx++)
+	for (unsigned int ofx = 0; ofx < MAX_OFFSET_X; ofx++)
 	{
-		for (unsigned int ofy = 0; ofy < MAX_OFFSET; ofy++)
+		for (unsigned int ofy = 0; ofy < MAX_OFFSET_Y; ofy++)
 		{
 			_Update<<<UPDATE_GRID, THREADS>>>(grid, ofx, ofy);
 			cudaDeviceSynchronize();
