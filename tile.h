@@ -2,9 +2,9 @@
 
 #include <cstdint>
 
-constexpr int GRID_WIDTH = 128;
-constexpr int GRID_HEIGHT = 128;
-constexpr int TILE_SIZE = 10;
+constexpr int GRID_WIDTH = 64;
+constexpr int GRID_HEIGHT = 64;
+constexpr int TILE_SIZE = 20;
 constexpr int SCREEN_WIDTH = GRID_WIDTH * TILE_SIZE;
 constexpr int SCREEN_HEIGHT = GRID_HEIGHT * TILE_SIZE;
 
@@ -16,47 +16,112 @@ constexpr int SCREEN_HEIGHT = GRID_HEIGHT * TILE_SIZE;
 
 struct Tile
 {
-	enum Type : unsigned int
+	enum Type: unsigned char
 	{
-		Air,
-		Sand,
-		Water,
-		TypeCount
+		TAir,
+		TSand,
+		TWater,
+		TAcid,
+		TCount
 	} type;
+
+	enum State: unsigned char
+	{
+		SGas,
+		SLiquid,
+		SSolid
+	};
 
 	union Data
 	{
-		struct Air
+		struct TAir
 		{
-			LOC_HD uint32_t Color() { return 0xFFFFFFFF; }
+			LOC_HD uint32_t Color() const { return 0xFFFFFFFF; }
+			LOC_HD State State() const { return SGas; }
+			LOC_HD float Density() const { return 0.5f; }
 		} air;
-		struct Sand
+		struct TSand
 		{
-			LOC_HD uint32_t Color() { return 0xFF80B2C2; }
+			LOC_HD uint32_t Color() const { return 0xFF80B2C2; }
+			LOC_HD State State() const { return SSolid; }
+			LOC_HD float Density() const { return 10.0f; }
 		} sand;
-		struct Water
+		struct TWater
 		{
-			LOC_HD uint32_t Color() { return 0xFFDA8923; }
+			LOC_HD uint32_t Color() const { return 0xFFDA8923; }
+			LOC_HD State State() const { return SLiquid; }
+			LOC_HD float Density() const { return 1.0f; }
 		} water;
+		struct TAcid
+		{
+			LOC_HD uint32_t Color() const { return 0xFF10FF27; }
+			LOC_HD State State() const { return SLiquid; }
+			LOC_HD float Density() const { return 2.0f; }
+		} acid;
 	} data;
 	
 	unsigned int lastUpdated;
 
-	LOC_HD uint32_t Color()
+	LOC_HD uint32_t Color() const
 	{
 		switch (type)
 		{
-		case Air:
+		case TAir:
 			return data.air.Color();
 
-		case Sand:
+		case TSand:
 			return data.sand.Color();
 
-		case Water:
+		case TWater:
 			return data.water.Color();
+
+		case TAcid:
+			return data.acid.Color();
 
 		default:
 			return 0xFF000000;
+		}
+	}
+
+	LOC_HD State State() const
+	{
+		switch (type)
+		{
+		case TAir:
+			return data.air.State();
+
+		case TSand:
+			return data.sand.State();
+
+		case TWater:
+			return data.water.State();
+
+		case TAcid:
+			return data.acid.State();
+
+		default:
+			return SGas;
+		}
+	}
+
+	LOC_HD float Density() const
+	{
+		switch (type)
+		{
+		case TAir:
+			return data.air.Density();
+
+		case TSand:
+			return data.sand.Density();
+
+		case TWater:
+			return data.water.Density();
+
+		case TAcid:
+			return data.acid.Density();
+
+		default:
+			return 0.0f;
 		}
 	}
 };

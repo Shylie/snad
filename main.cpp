@@ -5,13 +5,13 @@
 int main(int argc, char** argv)
 {
 	InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "snad");
-	//SetTargetFPS(60);
+	SetTargetFPS(60);
 
 	Texture texture = LoadTextureFromImage(Image{ nullptr, GRID_WIDTH, GRID_HEIGHT, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 });
 
 	SetupGrid(texture.id);
 
-	unsigned int selected = Tile::Type::Sand;
+	unsigned int selected = Tile::Type::TSand;
 	uint32_t selectedColor = Tile{ static_cast<Tile::Type>(selected), { } }.Color();
 
 	while (!WindowShouldClose())
@@ -34,17 +34,17 @@ int main(int argc, char** argv)
 			{
 				if (x < GRID_WIDTH && y < GRID_HEIGHT)
 				{
-					SetTile(x, y, { Tile::Air, { } });
+					SetTile(x, y, { Tile::TAir, { } });
 				}
 			}
 		}
 
-		if (IsKeyPressed(KEY_COMMA) && selected - 1 > Tile::Type::Air)
+		if (IsKeyPressed(KEY_COMMA) && selected - 1 > Tile::Type::TAir)
 		{
 			selected -= 1;
 			selectedColor = Tile{ static_cast<Tile::Type>(selected), { } }.Color();
 		}
-		if (IsKeyPressed(KEY_PERIOD) && selected + 1 < Tile::Type::TypeCount)
+		if (IsKeyPressed(KEY_PERIOD) && selected + 1 < Tile::Type::TCount)
 		{
 			selected += 1;
 			selectedColor = Tile{ static_cast<Tile::Type>(selected), { } }.Color();

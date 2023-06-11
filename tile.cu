@@ -79,7 +79,7 @@ __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 	{
 		Tile* below = grid.Tile(x, y - 1);
 
-		if (below && (below->type == Tile::Air || below->type == Tile::Water))
+		if (below && below->State() < me->State() && below->Density() < me->Density())
 		{
 			SwapTiles(me, below);
 
@@ -92,7 +92,7 @@ __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 	{
 		Tile* downLeft = grid.Tile(x - 1, y - 1);
 
-		if (downLeft && (downLeft->type == Tile::Air || downLeft->type == Tile::Water))
+		if (downLeft && downLeft->State() < me->State() && downLeft->Density() < me->Density())
 		{
 			SwapTiles(me, downLeft);
 
@@ -105,7 +105,7 @@ __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 	{
 		Tile* downRight = grid.Tile(x + 1, y - 1);
 
-		if (downRight && (downRight->type == Tile::Air || downRight->type == Tile::Water))
+		if (downRight && downRight->State() < me->State() && downRight->Density() < me->Density())
 		{
 			SwapTiles(me, downRight);
 
@@ -116,12 +116,12 @@ __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 	}
 }
 
-__device__ void WaterUpdate(TileGrid& grid, unsigned int x, unsigned int y)
+__device__ void BasicLiquidUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 {
 	Tile* me = grid.Tile(x, y);
 	Tile* below = grid.Tile(x, y - 1);
 
-	if (below && below->type == Tile::Air)
+	if (below && below->State() <= me->State() && below->Density() < me->Density())
 	{
 		SwapTiles(me, below);
 
@@ -134,7 +134,7 @@ __device__ void WaterUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 		switch (r % 6)
 		{
 		case 0:
-			moveTo = grid.Tile(x - 2, y);
+			moveTo = (grid.Tile(x - 1, y) && grid.Tile(x - 1, y)->State() <= me->State()) ? grid.Tile(x - 2, y) : nullptr;
 			break;
 
 		case 1:
@@ -146,11 +146,11 @@ __device__ void WaterUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 			break;
 
 		case 3:
-			moveTo = grid.Tile(x + 2, y);
+			moveTo = (grid.Tile(x + 1, y) && grid.Tile(x + 1, y)->State() <= me->State()) ? grid.Tile(x + 2, y) : nullptr;
 			break;
 		}
 
-		if (moveTo && moveTo->type == Tile::Air)
+		if (moveTo && moveTo->State() <= me->State())
 		{
 			SwapTiles(me, moveTo);
 			moveTo->lastUpdated = grid.tick + 1;
@@ -158,11 +158,12 @@ __device__ void WaterUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 	}
 }
 
-__constant__ TileUpdate tileUpdateFns[Tile::TypeCount] =
+__constant__ TileUpdate tileUpdateFns[Tile::TCount] =
 {
 	AirUpdate,
 	SandUpdate,
-	WaterUpdate
+	BasicLiquidUpdate,
+	BasicLiquidUpdate
 };
 
 static TileGrid* grid = nullptr;
