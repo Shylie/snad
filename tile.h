@@ -2,9 +2,9 @@
 
 #include <cstdint>
 
-constexpr int GRID_WIDTH = 64;
-constexpr int GRID_HEIGHT = 64;
-constexpr int TILE_SIZE = 20;
+constexpr int GRID_WIDTH = 640;
+constexpr int GRID_HEIGHT = 360;
+constexpr int TILE_SIZE = 3;
 constexpr int SCREEN_WIDTH = GRID_WIDTH * TILE_SIZE;
 constexpr int SCREEN_HEIGHT = GRID_HEIGHT * TILE_SIZE;
 
@@ -21,7 +21,7 @@ struct Tile
 		TAir,
 		TSand,
 		TWater,
-		TAcid,
+		TLava,
 		TCount
 	} type;
 
@@ -52,12 +52,12 @@ struct Tile
 			LOC_HD State State() const { return SLiquid; }
 			LOC_HD float Density() const { return 1.0f; }
 		} water;
-		struct TAcid
+		struct TLava
 		{
-			LOC_HD uint32_t Color() const { return 0xFF10FF27; }
+			LOC_HD uint32_t Color() const { return 0xFF1535FF; }
 			LOC_HD State State() const { return SLiquid; }
 			LOC_HD float Density() const { return 2.0f; }
-		} acid;
+		} lava;
 	} data;
 	
 	unsigned int lastUpdated;
@@ -75,8 +75,8 @@ struct Tile
 		case TWater:
 			return data.water.Color();
 
-		case TAcid:
-			return data.acid.Color();
+		case TLava:
+			return data.lava.Color();
 
 		default:
 			return 0xFF000000;
@@ -96,8 +96,8 @@ struct Tile
 		case TWater:
 			return data.water.State();
 
-		case TAcid:
-			return data.acid.State();
+		case TLava:
+			return data.lava.State();
 
 		default:
 			return SGas;
@@ -117,8 +117,8 @@ struct Tile
 		case TWater:
 			return data.water.Density();
 
-		case TAcid:
-			return data.acid.Density();
+		case TLava:
+			return data.lava.Density();
 
 		default:
 			return 0.0f;

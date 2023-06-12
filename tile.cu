@@ -131,21 +131,23 @@ __device__ void BasicLiquidUpdate(TileGrid& grid, unsigned int x, unsigned int y
 	{
 		unsigned int r = grid.Random(x, y)();
 		Tile* moveTo = nullptr;
-		switch (r % 6)
+		switch (r % 7)
 		{
 		case 0:
+		case 1:
 			moveTo = (grid.Tile(x - 1, y) && grid.Tile(x - 1, y)->State() <= me->State()) ? grid.Tile(x - 2, y) : nullptr;
 			break;
 
-		case 1:
+		case 2:
 			moveTo = grid.Tile(x - 1, y);
 			break;
 
-		case 2:
+		case 3:
 			moveTo = grid.Tile(x + 1, y);
 			break;
 
-		case 3:
+		case 4:
+		case 5:
 			moveTo = (grid.Tile(x + 1, y) && grid.Tile(x + 1, y)->State() <= me->State()) ? grid.Tile(x + 2, y) : nullptr;
 			break;
 		}
@@ -204,6 +206,7 @@ __global__ void _Setup(TileGrid* grid)
 
 	if (x < GRID_WIDTH && y < GRID_HEIGHT)
 	{
+		*grid->Tile(x, y) = { Tile::TAir };
 		grid->Tile(x, y)->lastUpdated = grid->tick;
 		grid->Random(x, y).SetState(x + y * GRID_WIDTH);
 	}
@@ -214,7 +217,6 @@ void SetupGrid(unsigned int textureID)
 	if (!grid)
 	{
 		cudaMallocManaged((void**)&grid, sizeof(TileGrid));
-		*grid = TileGrid();
 		cudaGraphicsGLRegisterImage(&resource, textureID, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard);
 		cudaGraphicsMapResources(1, &resource);
 		cudaGraphicsSubResourceGetMappedArray(&array, resource, 0, 0);
