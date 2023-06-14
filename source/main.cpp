@@ -5,7 +5,7 @@
 int main(int argc, char** argv)
 {
 	InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "snad");
-	SetTargetFPS(60);
+	//SetTargetFPS(60);
 
 	Texture texture = LoadTextureFromImage(Image{ nullptr, GRID_WIDTH, GRID_HEIGHT, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 });
 

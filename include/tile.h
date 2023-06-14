@@ -2,9 +2,9 @@
 
 #include <cstdint>
 
-constexpr int GRID_WIDTH = 640;
-constexpr int GRID_HEIGHT = 360;
-constexpr int TILE_SIZE = 3;
+constexpr int GRID_WIDTH = 960;
+constexpr int GRID_HEIGHT = 960;
+constexpr int TILE_SIZE = 1;
 constexpr int SCREEN_WIDTH = GRID_WIDTH * TILE_SIZE;
 constexpr int SCREEN_HEIGHT = GRID_HEIGHT * TILE_SIZE;
 
