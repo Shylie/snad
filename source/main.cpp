@@ -16,10 +16,9 @@ int main(int argc, char** argv)
 	unsigned int selected = Tile::Type::Sand;
 	uint32_t selectedColor = Tile(static_cast<Tile::Type>(selected)).Color();
 
-	constexpr int UPDATES_PER_SECOND = 300;
+	constexpr int UPDATES_PER_SECOND = 250;
 	constexpr float DELTA_THRESHOLD = 1.0f / UPDATES_PER_SECOND;
 	float delta = 0.0f;
-
 
 	while (!WindowShouldClose())
 	{
@@ -85,6 +84,7 @@ int main(int argc, char** argv)
 		BeginDrawing();
 		DrawTexturePro(texture, { 0, 0, GRID_WIDTH, -GRID_HEIGHT }, { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT }, { 0, 0 }, 0, WHITE);
 		DrawRectangleLines(TILE_SIZE * (x - sz), TILE_SIZE * (GRID_HEIGHT - y - sz - 1), TILE_SIZE * (2 * sz + 1), TILE_SIZE * (2 * sz + 1), Color{ 0, 0, 0, 127 });
+		DrawRectangle(TILE_SIZE * (x - sz), TILE_SIZE * (GRID_HEIGHT - y - sz - 1), TILE_SIZE * (2 * sz + 1), TILE_SIZE * (2 * sz + 1), Fade(*reinterpret_cast<Color*>(&selectedColor), 0.5f));
 		DrawRectangle(20, 20, 20, 20, Fade(*reinterpret_cast<Color*>(&selectedColor), 0.5f));
 		DrawRectangleLines(20, 20, 20, 20, Color{ 0, 0, 0, 127 });
 		DrawFPS(20, 60);

@@ -178,13 +178,40 @@ __device__ void BasicLiquidUpdate(TileGrid& grid, unsigned int x, unsigned int y
 
 __device__ void WaterUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 {
-	if (grid.Tile(x, y)->data.temperature > 100.0f)
+	const float temp = grid.Tile(x, y)->data.temperature;
+	if (temp > 100.0f)
 	{
-		*grid.Tile(x, y) = Tile(Tile::Air);
+		*grid.Tile(x, y) = Tile(Tile::Air).SetTemperature(temp);
 	}
 	else
 	{
 		BasicLiquidUpdate(grid, x, y);
+	}
+}
+
+__device__ void LavaUpdate(TileGrid& grid, unsigned int x, unsigned int y)
+{
+	const float temp = grid.Tile(x, y)->data.temperature;
+	if (temp < 700.0f)
+	{
+		*grid.Tile(x, y) = Tile(Tile::Stone).SetTemperature(temp);
+	}
+	else
+	{
+		BasicLiquidUpdate(grid, x, y);
+	}
+}
+
+__device__ void StoneUpdate(TileGrid& grid, unsigned int x, unsigned int y)
+{
+	const float temp = grid.Tile(x, y)->data.temperature;
+	if (temp > 700.0f)
+	{
+		*grid.Tile(x, y) = Tile(Tile::Lava).SetTemperature(temp);
+	}
+	else
+	{
+		SandUpdate(grid, x, y);
 	}
 }
 
@@ -193,7 +220,8 @@ __constant__ TileUpdate tileUpdateFns[Tile::__TypeCount] =
 	AirUpdate,
 	SandUpdate,
 	WaterUpdate,
-	BasicLiquidUpdate
+	LavaUpdate,
+	StoneUpdate
 };
 
 static TileGrid* grid = nullptr;
@@ -214,38 +242,92 @@ __global__ void _Update(TileGrid* grid, unsigned int ofx, unsigned int ofy)
 	}
 }
 
+__device__ float GetTemperature(TileGrid& grid, unsigned int x, unsigned int y, float fallback)
+{
+	const Tile* t = grid.Tile(x, y);
+	if (t)
+	{
+		return t->data.temperature;
+	}
+	else
+	{
+		return fallback;
+	}
+}
+
 __global__ void _UpdateTemp(TileGrid* grid)
 {
 	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x;
 	const unsigned int y = blockDim.y * blockIdx.y + threadIdx.y;
 
-	float newTemperature;
-	if (x < GRID_WIDTH && y < GRID_HEIGHT)
+	float lfluxx;
+	float rfluxx;
+	float lfluxy;
+	float rfluxy;
+
+	Tile* tile = grid->Tile(x, y);
+	if (tile)
 	{
-		Tile me = *grid->Tile(x, y);
-		newTemperature = me.data.temperature;
+		tile = grid->Tile(x, y);
 
-		for (int dx = -1; dx <= 1; dx++)
-		{
-			for (int dy = -1; dy <= 1; dy++)
-			{
-				const Tile* t = grid->Tile(x + dx, y + dy);
-				if (t)
-				{
-					const float diff = t->Energy() - me.Energy();
-					const float transferAmount = diff * fminf(t->ThermalDiffusity(), me.ThermalDiffusity());
+		const float fallback = tile->data.temperature;
+		const float conductivity = tile->ThermalConductivity();
 
-					newTemperature += transferAmount;
-				}
-			}
-		}
+		// approximate the temperature gradient
+		const float ldTdx = fallback - GetTemperature(*grid, x - 1, y, fallback);
+		const float rdTdx = GetTemperature(*grid, x + 1, y, fallback) - fallback;
+
+		const float ldTdy = fallback - GetTemperature(*grid, x, y - 1, fallback);
+		const float rdTdy = GetTemperature(*grid, x, y + 1, fallback) - fallback;
+
+		// approximated temperature flux based on temperature gradient
+		lfluxx = -conductivity * ldTdx;
+		rfluxx = -conductivity * rdTdx;
+
+		lfluxy = -conductivity * ldTdy;
+		rfluxy = -conductivity * rdTdy;
 	}
 
 	__syncthreads();
 
-	if (x < GRID_WIDTH && y < GRID_HEIGHT)
+	if (tile)
 	{
-		grid->Tile(x, y)->data.temperature = newTemperature;
+		{
+			Tile* left = grid->Tile(x - 1, y);
+			if (left)
+			{
+				atomicAdd(&left->data.temperature, -lfluxx / left->SpecificHeat());
+				atomicAdd(&tile->data.temperature, lfluxx / tile->SpecificHeat());
+			}
+		}
+		{
+			Tile* right = grid->Tile(x + 1, y);
+			if (right)
+			{
+				atomicAdd(&right->data.temperature, rfluxx / right->SpecificHeat());
+				atomicAdd(&tile->data.temperature, -rfluxx / tile->SpecificHeat());
+			}
+		}
+
+		// change up temperature
+		{
+			Tile* down = grid->Tile(x, y - 1);
+			if (down)
+			{
+				atomicAdd(&down->data.temperature, -lfluxy / down->SpecificHeat());
+				atomicAdd(&tile->data.temperature, lfluxy / tile->SpecificHeat());
+			}
+		}
+
+		// change up temperature
+		{
+			Tile* up = grid->Tile(x, y + 1);
+			if (up)
+			{
+				atomicAdd(&up->data.temperature, rfluxy / up->SpecificHeat());
+				atomicAdd(&tile->data.temperature, -rfluxy / tile->SpecificHeat());
+			}
+		}
 	}
 }
 
@@ -254,9 +336,10 @@ __global__ void _Render(TileGrid* grid, cudaSurfaceObject_t surface)
 	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x;
 	const unsigned int y = blockDim.y * blockIdx.y + threadIdx.y;
 
-	if (x < GRID_WIDTH && y < GRID_HEIGHT)
+	Tile* tile = grid->Tile(x, y);
+	if (tile)
 	{
-		surf2Dwrite(grid->Tile(x, y)->Color(), surface, x * sizeof(uint32_t), y);
+		surf2Dwrite(tile->Color(), surface, x * sizeof(uint32_t), y);
 	}
 }
 
