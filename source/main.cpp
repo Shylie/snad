@@ -4,8 +4,8 @@
 
 int main(int argc, char** argv)
 {
+	SetConfigFlags(FLAG_VSYNC_HINT);
 	InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "snad");
-	//SetTargetFPS(60);
 
 	Texture texture = LoadTextureFromImage(Image{ nullptr, GRID_WIDTH, GRID_HEIGHT, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 });
 
@@ -13,13 +13,22 @@ int main(int argc, char** argv)
 
 	float szf = 0;
 
-	unsigned int selected = Tile::Type::TSand;
-	uint32_t selectedColor = Tile{ static_cast<Tile::Type>(selected), { } }.Color();
+	unsigned int selected = Tile::Type::Sand;
+	uint32_t selectedColor = Tile(static_cast<Tile::Type>(selected)).Color();
+
+	constexpr int UPDATES_PER_SECOND = 300;
+	constexpr float DELTA_THRESHOLD = 1.0f / UPDATES_PER_SECOND;
+	float delta = 0.0f;
+
 
 	while (!WindowShouldClose())
 	{
-		for (int i = 0; i < 5; i++)
+		delta += GetFrameTime();
+
+		while (delta > DELTA_THRESHOLD)
 		{
+			delta -= DELTA_THRESHOLD;
+
 			Update();
 		}
 
@@ -32,7 +41,6 @@ int main(int argc, char** argv)
 
 		if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
 		{
-
 			if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
 			{
 				for (int dx = -sz; dx <= sz; dx++)
@@ -41,7 +49,7 @@ int main(int argc, char** argv)
 					{
 						if (x + dx < GRID_WIDTH && y + dy < GRID_HEIGHT)
 						{
-							SetTile(x + dx, y + dy, { static_cast<Tile::Type>(selected), { } });
+							SetTile(x + dx, y + dy, Tile(static_cast<Tile::Type>(selected)));
 						}
 					}
 				}
@@ -54,22 +62,22 @@ int main(int argc, char** argv)
 					{
 						if (x + dx < GRID_WIDTH && y + dy < GRID_HEIGHT)
 						{
-							SetTile(x + dx, y + dy, { Tile::TAir, { } });
+							SetTile(x + dx, y + dy, Tile(Tile::Air));
 						}
 					}
 				}
 			}
 		}
 
-		if (IsKeyPressed(KEY_COMMA) && selected - 1 > Tile::Type::TAir)
+		if (IsKeyPressed(KEY_COMMA) && selected - 1 > Tile::Type::Air)
 		{
 			selected -= 1;
-			selectedColor = Tile{ static_cast<Tile::Type>(selected), { } }.Color();
+			selectedColor = Tile(static_cast<Tile::Type>(selected)).Color();
 		}
-		if (IsKeyPressed(KEY_PERIOD) && selected + 1 < Tile::Type::TCount)
+		if (IsKeyPressed(KEY_PERIOD) && selected + 1 < Tile::Type::__TypeCount)
 		{
 			selected += 1;
-			selectedColor = Tile{ static_cast<Tile::Type>(selected), { } }.Color();
+			selectedColor = Tile(static_cast<Tile::Type>(selected)).Color();
 		}
 
 		Render();

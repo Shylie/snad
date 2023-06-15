@@ -1,10 +1,13 @@
 #include "tile.h"
 
+#ifndef WINGDIAPI
 #define WINGDIAPI
+#endif
+#ifndef APIENTRY
 #define APIENTRY
+#endif
 #include <cuda_runtime_api.h>
 #include <cuda_gl_interop.h>
-#include <device_atomic_functions.h>
 
 constexpr unsigned int MAX_TILE_MODIFY_DISTANCE_X = 2;
 constexpr unsigned int MAX_TILE_MODIFY_DISTANCE_Y = 1;
@@ -41,7 +44,7 @@ class TileGrid
 public:
 	__host__ __device__ Tile* Tile(unsigned int x, unsigned int y)
 	{
-		if (x >= GRID_WIDTH || y >= GRID_HEIGHT)
+		if ((x >= GRID_WIDTH) | (y >= GRID_HEIGHT))
 		{
 			return nullptr;
 		}
@@ -56,19 +59,36 @@ public:
 		return rands[x + y * GRID_WIDTH];
 	}
 
-	unsigned int tick;
+	__host__ __device__ unsigned int GetTick()
+	{
+		return tick;
+	}
+
+	__host__ void SetTick(unsigned int t)
+	{
+		tick = t;
+	}
 
 private:
 	::Tile tiles[GRID_WIDTH * GRID_HEIGHT];
 	XORRand rands[GRID_WIDTH * GRID_HEIGHT];
+	unsigned int tick;
 };
 
-__device__ void SwapTiles(Tile* a, Tile* b)
+__device__ void SwapTiles(Tile* __restrict__ a, Tile* __restrict__ b)
 {
 	Tile copy = *a;
 	*a = *b;
 	*b = copy;
 }
+
+//__device__ void Move(TileGrid& grid, unsigned int x, unsigned int y, int dx, int dy)
+//{
+//	__builtin_assume(x < GRID_WIDTH);
+//	__builtin_assume(y < GRID_HEIGHT);
+//	__builtin_assume((dx < 0 ? -dx : dx) <= MAX_TILE_MODIFY_DISTANCE_X);
+//	__builtin_assume((dy < 0 ? -dy : dy) <= MAX_TILE_MODIFY_DISTANCE_Y);
+//}
 
 typedef void (*TileUpdate)(TileGrid&, unsigned int, unsigned int);
 __device__ void AirUpdate(TileGrid& grid, unsigned int x, unsigned int y) { }
@@ -79,37 +99,32 @@ __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 	{
 		Tile* below = grid.Tile(x, y - 1);
 
-		if (below && below->State() < me->State() && below->Density() < me->Density())
+		if (below && below->Density() < me->Density())
 		{
 			SwapTiles(me, below);
 
-			below->lastUpdated = grid.tick + 1;
-
 			return;
 		}
 	}
 
+	if (grid.Random(x, y)() % 2 == 0)
 	{
 		Tile* downLeft = grid.Tile(x - 1, y - 1);
 
-		if (downLeft && downLeft->State() < me->State() && downLeft->Density() < me->Density())
+		if (downLeft && downLeft->Density() < me->Density())
 		{
 			SwapTiles(me, downLeft);
-
-			downLeft->lastUpdated = grid.tick + 1;
 
 			return;
 		}
 	}
-
+	else
 	{
 		Tile* downRight = grid.Tile(x + 1, y - 1);
 
-		if (downRight && downRight->State() < me->State() && downRight->Density() < me->Density())
+		if (downRight && downRight->Density() < me->Density())
 		{
 			SwapTiles(me, downRight);
-
-			downRight->lastUpdated = grid.tick + 1;
 
 			return;
 		}
@@ -121,21 +136,19 @@ __device__ void BasicLiquidUpdate(TileGrid& grid, unsigned int x, unsigned int y
 	Tile* me = grid.Tile(x, y);
 	Tile* below = grid.Tile(x, y - 1);
 
-	if (below && below->State() <= me->State() && below->Density() < me->Density())
+	if (below && below->Density() < me->Density())
 	{
 		SwapTiles(me, below);
-
-		below->lastUpdated = grid.tick + 1;
 	}
 	else
 	{
 		unsigned int r = grid.Random(x, y)();
-		Tile* moveTo = nullptr;
+		Tile* moveTo;
 		switch (r % 7)
 		{
 		case 0:
 		case 1:
-			moveTo = (grid.Tile(x - 1, y) && grid.Tile(x - 1, y)->State() <= me->State()) ? grid.Tile(x - 2, y) : nullptr;
+			moveTo = (grid.Tile(x - 1, y) && grid.Tile(x - 1, y)->Density() < me->Density()) ? grid.Tile(x - 2, y) : nullptr;
 			break;
 
 		case 2:
@@ -148,23 +161,38 @@ __device__ void BasicLiquidUpdate(TileGrid& grid, unsigned int x, unsigned int y
 
 		case 4:
 		case 5:
-			moveTo = (grid.Tile(x + 1, y) && grid.Tile(x + 1, y)->State() <= me->State()) ? grid.Tile(x + 2, y) : nullptr;
+			moveTo = (grid.Tile(x + 1, y) && grid.Tile(x + 1, y)->Density() < me->Density()) ? grid.Tile(x + 2, y) : nullptr;
+			break;
+
+		default:
+			moveTo = nullptr;
 			break;
 		}
 
-		if (moveTo && moveTo->State() <= me->State())
+		if (moveTo && moveTo->Density() < me->Density())
 		{
 			SwapTiles(me, moveTo);
-			moveTo->lastUpdated = grid.tick + 1;
 		}
 	}
 }
 
-__constant__ TileUpdate tileUpdateFns[Tile::TCount] =
+__device__ void WaterUpdate(TileGrid& grid, unsigned int x, unsigned int y)
+{
+	if (grid.Tile(x, y)->data.temperature > 100.0f)
+	{
+		*grid.Tile(x, y) = Tile(Tile::Air);
+	}
+	else
+	{
+		BasicLiquidUpdate(grid, x, y);
+	}
+}
+
+__constant__ TileUpdate tileUpdateFns[Tile::__TypeCount] =
 {
 	AirUpdate,
 	SandUpdate,
-	BasicLiquidUpdate,
+	WaterUpdate,
 	BasicLiquidUpdate
 };
 
@@ -175,23 +203,56 @@ static cudaSurfaceObject_t surface;
 
 __global__ void _Update(TileGrid* grid, unsigned int ofx, unsigned int ofy)
 {
-	unsigned int x = (blockDim.x * blockIdx.x + threadIdx.x) * MAX_OFFSET_X + ofx;
-	unsigned int y = (blockDim.y * blockIdx.y + threadIdx.y) * MAX_OFFSET_Y + ofy;
+	const unsigned int x = (blockDim.x * blockIdx.x + threadIdx.x) * MAX_OFFSET_X + ofx;
+	const unsigned int y = (blockDim.y * blockIdx.y + threadIdx.y) * MAX_OFFSET_Y + ofy;
+
+	Tile* t = grid->Tile(x, y);
+	if (t && t->lastUpdated <= grid->GetTick())
+	{
+		t->lastUpdated = grid->GetTick() + 1;
+		tileUpdateFns[t->type](*grid, x, y);
+	}
+}
+
+__global__ void _UpdateTemp(TileGrid* grid)
+{
+	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x;
+	const unsigned int y = blockDim.y * blockIdx.y + threadIdx.y;
+
+	float newTemperature;
+	if (x < GRID_WIDTH && y < GRID_HEIGHT)
+	{
+		Tile me = *grid->Tile(x, y);
+		newTemperature = me.data.temperature;
+
+		for (int dx = -1; dx <= 1; dx++)
+		{
+			for (int dy = -1; dy <= 1; dy++)
+			{
+				const Tile* t = grid->Tile(x + dx, y + dy);
+				if (t)
+				{
+					const float diff = t->Energy() - me.Energy();
+					const float transferAmount = diff * fminf(t->ThermalDiffusity(), me.ThermalDiffusity());
+
+					newTemperature += transferAmount;
+				}
+			}
+		}
+	}
+
+	__syncthreads();
 
 	if (x < GRID_WIDTH && y < GRID_HEIGHT)
 	{
-		Tile t = *grid->Tile(x, y);
-		if (t.lastUpdated < grid->tick)
-		{
-			tileUpdateFns[t.type](*grid, x, y);
-		}
+		grid->Tile(x, y)->data.temperature = newTemperature;
 	}
 }
 
 __global__ void _Render(TileGrid* grid, cudaSurfaceObject_t surface)
 {
-	unsigned int x = blockDim.x * blockIdx.x + threadIdx.x;
-	unsigned int y = blockDim.y * blockIdx.y + threadIdx.y;
+	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x;
+	const unsigned int y = blockDim.y * blockIdx.y + threadIdx.y;
 
 	if (x < GRID_WIDTH && y < GRID_HEIGHT)
 	{
@@ -201,13 +262,13 @@ __global__ void _Render(TileGrid* grid, cudaSurfaceObject_t surface)
 
 __global__ void _Setup(TileGrid* grid)
 {
-	unsigned int x = blockDim.x * blockIdx.x + threadIdx.x;
-	unsigned int y = blockDim.y * blockIdx.y + threadIdx.y;
+	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x;
+	const unsigned int y = blockDim.y * blockIdx.y + threadIdx.y;
 
 	if (x < GRID_WIDTH && y < GRID_HEIGHT)
 	{
-		*grid->Tile(x, y) = { Tile::TAir };
-		grid->Tile(x, y)->lastUpdated = grid->tick;
+		*grid->Tile(x, y) = Tile(Tile::Air);
+		grid->Tile(x, y)->lastUpdated = grid->GetTick();
 		grid->Random(x, y).SetState(x + y * GRID_WIDTH);
 	}
 }
@@ -228,7 +289,7 @@ void SetupGrid(unsigned int textureID)
 
 		cudaCreateSurfaceObject(&surface, &desc);
 
-		grid->tick = 0;
+		grid->SetTick(0);
 
 		_Setup<<<BASE_GRID, THREADS>>>(grid);
 		cudaDeviceSynchronize();
@@ -254,6 +315,9 @@ Tile GetTile(unsigned int x, unsigned int y)
 
 void Update()
 {
+	_UpdateTemp<<<BASE_GRID, THREADS>>>(grid);
+	cudaDeviceSynchronize();
+
 	for (unsigned int ofx = 0; ofx < MAX_OFFSET_X; ofx++)
 	{
 		for (unsigned int ofy = 0; ofy < MAX_OFFSET_Y; ofy++)
@@ -262,7 +326,8 @@ void Update()
 			cudaDeviceSynchronize();
 		}
 	}
-	grid->tick++;
+
+	grid->SetTick(grid->GetTick() + 1);
 }
 
 void Render()

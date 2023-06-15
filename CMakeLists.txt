@@ -24,7 +24,9 @@ target_link_libraries(snad
 )
 
 target_include_directories(snad
-	PRIVATE include
+	PRIVATE
+		include
+		source
 )
 
 if (WIN32)
