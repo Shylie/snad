@@ -7,7 +7,7 @@
 
 constexpr int GRID_WIDTH = 256;
 constexpr int GRID_HEIGHT = 256;
-constexpr int TILE_SIZE = 3;
+constexpr int TILE_SIZE = 4;
 constexpr int SCREEN_WIDTH = GRID_WIDTH * TILE_SIZE;
 constexpr int SCREEN_HEIGHT = GRID_HEIGHT * TILE_SIZE;
 
@@ -59,7 +59,7 @@ struct Tile
 				LOC_HD uint32_t Color(const Data&) const { return 0xFFFFFFFF; }
 				LOC_HD float Density(const Data&) const { return 5.0f; }
 				LOC_HD float SpecificHeat(const Data&) const { return 1000.0f; }
-				LOC_HD float ThermalConductivity(const Data&) const { return 0.052f; }
+				LOC_HD float ThermalConductivity(const Data&) const { return 0.104f; }
 
 				LOC_HD static float DefaultTemperature() { return 25.0f; }
 			} air;
@@ -68,7 +68,7 @@ struct Tile
 				LOC_HD uint32_t Color(const Data&) const { return 0xFF80B2C2; }
 				LOC_HD float Density(const Data&) const { return 50.0f; }
 				LOC_HD float SpecificHeat(const Data&) const { return 1000.0f; }
-				LOC_HD float ThermalConductivity(const Data&) const { return 0.50f; }
+				LOC_HD float ThermalConductivity(const Data&) const { return 1.0f; }
 
 				LOC_HD static float DefaultTemperature() { return 25.0f; }
 			} sand;
@@ -77,7 +77,7 @@ struct Tile
 				LOC_HD uint32_t Color(const Data&) const { return 0xFFDA8923; }
 				LOC_HD float Density(const Data&) const { return 25.0f; }
 				LOC_HD float SpecificHeat(const Data&) const { return 4184.0f; }
-				LOC_HD float ThermalConductivity(const Data&) const { return 1.2178f; }
+				LOC_HD float ThermalConductivity(const Data&) const { return 2.4356f; }
 
 				LOC_HD static float DefaultTemperature() { return 25.0f; }
 			} water;
@@ -94,7 +94,7 @@ struct Tile
 				}
 				LOC_HD float Density(const Data&) const { return 40.0f; }
 				LOC_HD float SpecificHeat(const Data&) const { return 1100.0f; }
-				LOC_HD float ThermalConductivity(const Data&) const { return 2.6f; }
+				LOC_HD float ThermalConductivity(const Data&) const { return 5.2f; }
 
 				LOC_HD static float DefaultTemperature() { return 1200.0f; }
 			} lava;
@@ -107,13 +107,11 @@ struct Tile
 
 					const float t = Clamp(Clamp(d.temperature - TEMP_MIN, 0, TEMP_MAX - TEMP_MIN) / (TEMP_MAX - TEMP_MIN), 0, 1);
 
-					printf("stone: %f %f\n", d.temperature, t);
-
 					return Mix(0x404040, 0x20A0, t);
 				}
 				LOC_HD float Density(const Data&) const { return 65.0f; }
 				LOC_HD float SpecificHeat(const Data&) const { return 1100.0f; }
-				LOC_HD float ThermalConductivity(const Data&) const { return 2.6f; }
+				LOC_HD float ThermalConductivity(const Data&) const { return 5.2f; }
 
 				LOC_HD static float DefaultTemperature() { return 25.0f; }
 			} stone;
@@ -126,6 +124,8 @@ struct Tile
 	} data;
 
 	unsigned int lastUpdated;
+
+	LOC_HD Tile() { }
 
 	LOC_HD Tile(Tile::Type type) :
 		type(type),

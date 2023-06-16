@@ -13,7 +13,7 @@ constexpr unsigned int MAX_TILE_MODIFY_DISTANCE_X = 2;
 constexpr unsigned int MAX_TILE_MODIFY_DISTANCE_Y = 1;
 constexpr unsigned int MAX_OFFSET_X = MAX_TILE_MODIFY_DISTANCE_X * 2 + 1;
 constexpr unsigned int MAX_OFFSET_Y = MAX_TILE_MODIFY_DISTANCE_Y * 2 + 1;
-constexpr int BLOCK_SIZE = 16;
+constexpr int BLOCK_SIZE = 32;
 const dim3 THREADS{ BLOCK_SIZE, BLOCK_SIZE };
 const dim3 BASE_GRID{ (GRID_WIDTH + BLOCK_SIZE - 1) / BLOCK_SIZE, (GRID_HEIGHT + BLOCK_SIZE - 1) / BLOCK_SIZE };
 const dim3 UPDATE_GRID{ (BASE_GRID.x + MAX_OFFSET_X - 1) / MAX_OFFSET_X, (BASE_GRID.y + MAX_OFFSET_Y - 1) / MAX_OFFSET_Y };
@@ -42,7 +42,7 @@ private:
 class TileGrid
 {
 public:
-	__host__ __device__ Tile* Tile(unsigned int x, unsigned int y)
+	__host__ __device__ Tile* __restrict__ Tile(unsigned int x, unsigned int y)
 	{
 		if ((x >= GRID_WIDTH) | (y >= GRID_HEIGHT))
 		{
@@ -94,10 +94,10 @@ typedef void (*TileUpdate)(TileGrid&, unsigned int, unsigned int);
 __device__ void AirUpdate(TileGrid& grid, unsigned int x, unsigned int y) { }
 __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 {
-	Tile* me = grid.Tile(x, y);
+	Tile* __restrict__ me = grid.Tile(x, y);
 
 	{
-		Tile* below = grid.Tile(x, y - 1);
+		Tile* __restrict__ below = grid.Tile(x, y - 1);
 
 		if (below && below->Density() < me->Density())
 		{
@@ -109,7 +109,7 @@ __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 
 	if (grid.Random(x, y)() % 2 == 0)
 	{
-		Tile* downLeft = grid.Tile(x - 1, y - 1);
+		Tile* __restrict__ downLeft = grid.Tile(x - 1, y - 1);
 
 		if (downLeft && downLeft->Density() < me->Density())
 		{
@@ -120,7 +120,7 @@ __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 	}
 	else
 	{
-		Tile* downRight = grid.Tile(x + 1, y - 1);
+		Tile* __restrict__ downRight = grid.Tile(x + 1, y - 1);
 
 		if (downRight && downRight->Density() < me->Density())
 		{
@@ -133,8 +133,8 @@ __device__ void SandUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 
 __device__ void BasicLiquidUpdate(TileGrid& grid, unsigned int x, unsigned int y)
 {
-	Tile* me = grid.Tile(x, y);
-	Tile* below = grid.Tile(x, y - 1);
+	Tile* __restrict__ me = grid.Tile(x, y);
+	Tile* __restrict__ below = grid.Tile(x, y - 1);
 
 	if (below && below->Density() < me->Density())
 	{
@@ -234,7 +234,7 @@ __global__ void _Update(TileGrid* grid, unsigned int ofx, unsigned int ofy)
 	const unsigned int x = (blockDim.x * blockIdx.x + threadIdx.x) * MAX_OFFSET_X + ofx;
 	const unsigned int y = (blockDim.y * blockIdx.y + threadIdx.y) * MAX_OFFSET_Y + ofy;
 
-	Tile* t = grid->Tile(x, y);
+	Tile* __restrict__ t = grid->Tile(x, y);
 	if (t && t->lastUpdated <= grid->GetTick())
 	{
 		t->lastUpdated = grid->GetTick() + 1;
@@ -242,17 +242,23 @@ __global__ void _Update(TileGrid* grid, unsigned int ofx, unsigned int ofy)
 	}
 }
 
-__device__ float GetTemperature(TileGrid& grid, unsigned int x, unsigned int y, float fallback)
+__device__ float GetTemperature(TileGrid& grid, Tile* stiles, bool* sokay, unsigned int sx, unsigned int sy, unsigned int x, unsigned int y, float fallback)
 {
-	const Tile* t = grid.Tile(x, y);
-	if (t)
+	const unsigned int sid = sx + sy * blockDim.x;
+	if (sx < 32 && sy < 32 && sokay[sid])
 	{
-		return t->data.temperature;
+		return stiles[sid].data.temperature;
 	}
 	else
 	{
-		return fallback;
+		const Tile* __restrict__ tile = grid.Tile(x, y);
+		if (tile)
+		{
+			return tile->data.temperature;
+		}
 	}
+
+	return fallback;
 }
 
 __global__ void _UpdateTemp(TileGrid* grid)
@@ -260,25 +266,43 @@ __global__ void _UpdateTemp(TileGrid* grid)
 	const unsigned int x = blockDim.x * blockIdx.x + threadIdx.x;
 	const unsigned int y = blockDim.y * blockIdx.y + threadIdx.y;
 
+	const unsigned int sx = threadIdx.x;
+	const unsigned int sy = threadIdx.y;
+
+	const unsigned int sid = sx + sy * blockDim.x;
+
+	__shared__ Tile stiles[1024];
+	__shared__ bool sokay[1024];
+
+	Tile* __restrict__ tile = grid->Tile(x, y);
+	if (tile)
+	{
+		stiles[sid] = *tile;
+		sokay[sid] = true;
+	}
+	else
+	{
+		sokay[sid] = false;
+	}
+
+	__syncthreads();
+
 	float lfluxx;
 	float rfluxx;
 	float lfluxy;
 	float rfluxy;
 
-	Tile* tile = grid->Tile(x, y);
-	if (tile)
+	if (sokay[sid])
 	{
-		tile = grid->Tile(x, y);
-
-		const float fallback = tile->data.temperature;
-		const float conductivity = tile->ThermalConductivity();
+		const float fallback = stiles[sid].data.temperature;
+		const float conductivity = stiles[sid].ThermalConductivity();
 
 		// approximate the temperature gradient
-		const float ldTdx = fallback - GetTemperature(*grid, x - 1, y, fallback);
-		const float rdTdx = GetTemperature(*grid, x + 1, y, fallback) - fallback;
+		const float ldTdx = fallback - GetTemperature(*grid, stiles, sokay, sx - 1, sy, x - 1, y, fallback);
+		const float rdTdx = GetTemperature(*grid, stiles, sokay, sx + 1, sy, x + 1, y, fallback) - fallback;
 
-		const float ldTdy = fallback - GetTemperature(*grid, x, y - 1, fallback);
-		const float rdTdy = GetTemperature(*grid, x, y + 1, fallback) - fallback;
+		const float ldTdy = fallback - GetTemperature(*grid, stiles, sokay, sx, sy - 1, x, y - 1, fallback);
+		const float rdTdy = GetTemperature(*grid, stiles, sokay, sx, sy + 1, x, y + 1, fallback) - fallback;
 
 		// approximated temperature flux based on temperature gradient
 		lfluxx = -conductivity * ldTdx;
@@ -290,10 +314,10 @@ __global__ void _UpdateTemp(TileGrid* grid)
 
 	__syncthreads();
 
-	if (tile)
+	if (sokay[sid])
 	{
 		{
-			Tile* left = grid->Tile(x - 1, y);
+			Tile* __restrict__ left = grid->Tile(x - 1, y);
 			if (left)
 			{
 				atomicAdd(&left->data.temperature, -lfluxx / left->SpecificHeat());
@@ -301,27 +325,23 @@ __global__ void _UpdateTemp(TileGrid* grid)
 			}
 		}
 		{
-			Tile* right = grid->Tile(x + 1, y);
+			Tile* __restrict__ right = grid->Tile(x + 1, y);
 			if (right)
 			{
 				atomicAdd(&right->data.temperature, rfluxx / right->SpecificHeat());
 				atomicAdd(&tile->data.temperature, -rfluxx / tile->SpecificHeat());
 			}
 		}
-
-		// change up temperature
 		{
-			Tile* down = grid->Tile(x, y - 1);
+			Tile* __restrict__ down = grid->Tile(x, y - 1);
 			if (down)
 			{
 				atomicAdd(&down->data.temperature, -lfluxy / down->SpecificHeat());
 				atomicAdd(&tile->data.temperature, lfluxy / tile->SpecificHeat());
 			}
 		}
-
-		// change up temperature
 		{
-			Tile* up = grid->Tile(x, y + 1);
+			Tile* __restrict__ up = grid->Tile(x, y + 1);
 			if (up)
 			{
 				atomicAdd(&up->data.temperature, rfluxy / up->SpecificHeat());

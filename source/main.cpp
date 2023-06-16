@@ -16,7 +16,7 @@ int main(int argc, char** argv)
 	unsigned int selected = Tile::Type::Sand;
 	uint32_t selectedColor = Tile(static_cast<Tile::Type>(selected)).Color();
 
-	constexpr int UPDATES_PER_SECOND = 250;
+	constexpr int UPDATES_PER_SECOND = 300;
 	constexpr float DELTA_THRESHOLD = 1.0f / UPDATES_PER_SECOND;
 	float delta = 0.0f;
 
